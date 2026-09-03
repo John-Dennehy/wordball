@@ -1,2 +1,10 @@
 node_modules
-examples
+client/node_modules
+client/build
+client/dist
+.env
+.env.local
+.DS_Store
+*.log
+pnpm-debug.log*
+coverage
