@@ -20,7 +20,7 @@ export default function Footer(props) {
 
   return (
     <div style={styleFooter} className='section has-text-centered'>
-      <a style={linkStyle} className='button is-primary is-outline is-inverted' href="http://www.github.com/Yasmineral/wordball" target="_blank" rel='noopener noreferrer'> <span style={paddingStyle}>Visit us on Github</span><br /><GoMarkGithub /> </a>
+      <a style={linkStyle} className='button is-primary is-outline is-inverted' href="http://www.github.com/Yasmineral/wordball" target="_blank" rel='noopener noreferrer'> <span style={paddingStyle}>Visit us on Github</span><br /><FaGithub /> </a>
     </div >
   )
 }
