@@ -6,6 +6,9 @@ import Seed from '../../model/seed.js';
 import Level from '../../model/level.js';
 import Ball from '../../model/ball.js';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, levelList } from '../../model/config.js';
+import { FaInbox, FaArrowUp } from 'react-icons/fa';
+
+const MAX_BANKED = 8;
 
 export default function SkillGame() {
   const history = useHistory();
@@ -18,7 +21,6 @@ export default function SkillGame() {
   const [bankedLetters, setBankedLetters] = useState([]);
   const [gameOver, setGameOver] = useState(false);
 
-  // Fallback if accessed directly without LinkToLevel
   const levelRef = useRef(null);
   const ballsRef = useRef([]);
   const particlesRef = useRef([]);
@@ -38,6 +40,7 @@ export default function SkillGame() {
     currentBallIdx: 0,
     bankedLetters: [],
     gameOver: false,
+    isAdvancing: false,
   });
 
   useEffect(() => {
@@ -46,13 +49,13 @@ export default function SkillGame() {
     if (!gameLevel) {
       const defaultWord = levelList[Math.floor(Math.random() * levelList.length)];
       const seed = new Seed(defaultWord);
-      gameLevel = new Level(seed, 14);
+      gameLevel = new Level(seed, 16);
     }
     levelRef.current = gameLevel;
 
     const canvas = canvasRef.current;
-    const initialBalls = gameLevel.letters.map((letter, i) => {
-      return new Ball(250, 750, 16, letter, canvas);
+    const initialBalls = gameLevel.letters.map((letter) => {
+      return new Ball(250, 710, 16, letter, canvas);
     });
     ballsRef.current = initialBalls;
 
@@ -81,16 +84,113 @@ export default function SkillGame() {
     sound.playGameOver();
 
     setTimeout(() => {
-      const currentBanked = stateRef.current.bankedLetters.length > 0
-        ? stateRef.current.bankedLetters
-        : ballsRef.current.slice(0, 8).map(b => b.letter); // Graceful fallback
+      let finalBanked = stateRef.current.bankedLetters;
+      // If player banked fewer than 3 letters, ensure they have at least 3 so word phase is playable
+      if (finalBanked.length < 3) {
+        const unused = ballsRef.current.map(b => b.letter).filter(l => !finalBanked.includes(l));
+        while (finalBanked.length < 3 && unused.length > 0) {
+          finalBanked.push(unused.shift());
+        }
+      }
+
       history.push('/smartgame', {
-        bankedLetters: currentBanked,
+        bankedLetters: finalBanked,
         skillScore: stateRef.current.score,
         targetWord: levelRef.current?.seed?.word || 'word',
       });
     }, 1500);
   };
+
+  const advanceBall = (delayMs = 250) => {
+    if (stateRef.current.isAdvancing) return;
+    stateRef.current.isAdvancing = true;
+
+    setTimeout(() => {
+      const nextIdx = stateRef.current.currentBallIdx + 1;
+      stateRef.current.currentBallIdx = nextIdx;
+      stateRef.current.isAdvancing = false;
+      setCurrentBallIdx(nextIdx);
+
+      // Reset position of new ball
+      if (nextIdx < ballsRef.current.length) {
+        const nextBall = ballsRef.current[nextIdx];
+        nextBall.xPos = 250;
+        nextBall.yPos = 710;
+        nextBall.xVel = 0;
+        nextBall.yVel = 0;
+        nextBall.isClicked = false;
+        nextBall.isDone = false;
+      } else {
+        finishGame();
+      }
+    }, delayMs);
+  };
+
+  // Player chooses to bank the current letter
+  const handleBankCurrentLetter = () => {
+    if (stateRef.current.gameOver || stateRef.current.isAdvancing) return;
+    const activeBall = ballsRef.current[stateRef.current.currentBallIdx];
+    if (!activeBall || activeBall.isClicked) return;
+
+    if (stateRef.current.bankedLetters.length >= MAX_BANKED) {
+      floatingTextsRef.current.push({
+        text: 'BANK FULL (MAX 8)!',
+        x: 250,
+        y: 660,
+        alpha: 1,
+        color: '#ff5555',
+      });
+      return;
+    }
+
+    activeBall.done();
+    sound.playTileClick();
+
+    // Bank the letter
+    stateRef.current.bankedLetters.push(activeBall.letter);
+    setBankedLetters([...stateRef.current.bankedLetters]);
+
+    // Particles on bank
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd = 1.5 + Math.random() * 3;
+      particlesRef.current.push({
+        x: activeBall.xPos,
+        y: activeBall.yPos,
+        vx: Math.cos(angle) * spd,
+        vy: Math.sin(angle) * spd,
+        color: '#03fca1',
+        radius: 2 + Math.random() * 3,
+        alpha: 1,
+      });
+    }
+
+    floatingTextsRef.current.push({
+      text: `BANKED [${activeBall.letter}]!`,
+      x: 250,
+      y: 670,
+      alpha: 1,
+      color: '#03fca1',
+    });
+
+    if (stateRef.current.bankedLetters.length >= MAX_BANKED) {
+      setTimeout(() => finishGame(), 600);
+    } else {
+      advanceBall(150);
+    }
+  };
+
+  // Keyboard shortcut: 'B' to bank
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'b' || e.key === 'B' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        handleBankCurrentLetter();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Main Canvas Render Loop
   useEffect(() => {
@@ -107,13 +207,13 @@ export default function SkillGame() {
       { xPos: 250, yPos: 55, score: 5, radius: 22 },
     ];
 
-    const foulLineY = 620;
+    const foulLineY = 600;
 
     const render = () => {
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      // Background Grid & Arena Glow
-      ctx.fillStyle = 'rgba(10, 14, 28, 0.7)';
+      // Arena background
+      ctx.fillStyle = 'rgba(10, 14, 28, 0.75)';
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
       // Arena border
@@ -123,7 +223,7 @@ export default function SkillGame() {
 
       // Draw Foul Line
       ctx.setLineDash([8, 6]);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, foulLineY);
@@ -132,11 +232,11 @@ export default function SkillGame() {
       ctx.setLineDash([]);
 
       ctx.font = 'bold 12px sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
       ctx.textAlign = 'center';
-      ctx.fillText('LAUNCH ZONE', CANVAS_WIDTH / 2, foulLineY + 20);
+      ctx.fillText('LAUNCH PAD (DRAG BACK TO AIM)', CANVAS_WIDTH / 2, foulLineY + 20);
 
-      // Draw Target Holes
+      // Draw Target Holes (Only award bonus points, don't bank letters)
       holes.forEach((hole) => {
         ctx.save();
         ctx.beginPath();
@@ -161,44 +261,43 @@ export default function SkillGame() {
         ctx.strokeStyle = hole.score >= 5 ? '#ffd166' : '#90e0ef';
         ctx.stroke();
 
-        // Hole Multiplier text
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'white';
         ctx.font = 'bold 14px sans-serif';
-        ctx.fillText(`x${hole.score}`, hole.xPos, hole.yPos + 5);
+        ctx.fillText(`+${hole.score * 10}pts`, hole.xPos, hole.yPos + 5);
         ctx.restore();
       });
 
-      // Banked Letters Tray at Bottom
-      const trayY = 820;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      ctx.fillRect(20, trayY, CANVAS_WIDTH - 40, 65);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.strokeRect(20, trayY, CANVAS_WIDTH - 40, 65);
+      // Bottom Bank Tray
+      const trayY = 780;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.fillRect(16, trayY, CANVAS_WIDTH - 32, 80);
+      ctx.strokeStyle = 'rgba(3, 252, 161, 0.4)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(16, trayY, CANVAS_WIDTH - 32, 80);
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.font = '11px sans-serif';
+      ctx.fillStyle = '#90e0ef';
+      ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText('BANKED LETTERS:', 30, trayY + 16);
+      ctx.fillText(`BANKED FOR WORDS (${stateRef.current.bankedLetters.length}/${MAX_BANKED}):`, 26, trayY + 18);
 
-      // Draw collected banked letters
+      // Draw collected banked letters in the tray
       stateRef.current.bankedLetters.forEach((char, idx) => {
-        const bx = 45 + idx * 30;
-        const by = trayY + 40;
+        const bx = 45 + idx * 36;
+        const by = trayY + 48;
         ctx.beginPath();
-        ctx.arc(bx, by, 12, 0, Math.PI * 2);
+        ctx.arc(bx, by, 14, 0, Math.PI * 2);
         ctx.fillStyle = '#03fca1';
         ctx.fill();
         ctx.fillStyle = '#000';
-        ctx.font = 'bold 12px sans-serif';
+        ctx.font = 'bold 13px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(char, bx, by + 4);
+        ctx.fillText(char, bx, by + 5);
       });
 
-      // Draw Current Active Ball
+      // Active Ball
       const activeBall = ballsRef.current[stateRef.current.currentBallIdx];
       if (activeBall && !activeBall.isDone) {
-        // Physics update
         const prevVelX = activeBall.xVel;
         const prevVelY = activeBall.yVel;
 
@@ -209,7 +308,20 @@ export default function SkillGame() {
           sound.playBounce();
         }
 
-        // Check Hole Sinks
+        // 1. Check if Ball Flew Over the Edge at the Top (Abyss miss)
+        if (activeBall.yPos < -activeBall.radius && !activeBall.isDone) {
+          activeBall.done();
+          floatingTextsRef.current.push({
+            text: 'OVER THE TOP (MISSED)!',
+            x: 250,
+            y: 350,
+            alpha: 1,
+            color: '#ff6b6b',
+          });
+          advanceBall();
+        }
+
+        // 2. Check Target Hole Sinks (Bonus Points, NOT Banked)
         holes.forEach((hole) => {
           const dx = activeBall.xPos - hole.xPos;
           const dy = activeBall.yPos - hole.yPos;
@@ -221,13 +333,9 @@ export default function SkillGame() {
             stateRef.current.score += points;
             setScore(stateRef.current.score);
 
-            // Bank the letter
-            stateRef.current.bankedLetters.push(activeBall.letter);
-            setBankedLetters([...stateRef.current.bankedLetters]);
-
             sound.playHoleSink(hole.score);
 
-            // Spawn Particles
+            // Particle explosion
             for (let i = 0; i < 22; i++) {
               const angle = Math.random() * Math.PI * 2;
               const spd = 2 + Math.random() * 5;
@@ -242,26 +350,29 @@ export default function SkillGame() {
               });
             }
 
-            // Spawn Floating Score
             floatingTextsRef.current.push({
-              text: `+${points}`,
+              text: `+${points} BONUS!`,
               x: hole.xPos,
               y: hole.yPos - 10,
               alpha: 1,
               color: hole.score >= 5 ? '#ffd166' : '#03fca1',
             });
 
-            // Move to next ball
+            // Advance immediately to new ball
             advanceBall();
           }
         });
 
-        // Check if ball stopped moving after launch
-        if (activeBall.isClicked && activeBall.speed() < 2) {
+        // 3. Check if Ball Stopped Moving (Missed shot)
+        if (activeBall.isClicked && activeBall.speed() < 1.8 && !activeBall.isDone) {
           activeBall.done();
-          // Still bank the letter even on miss!
-          stateRef.current.bankedLetters.push(activeBall.letter);
-          setBankedLetters([...stateRef.current.bankedLetters]);
+          floatingTextsRef.current.push({
+            text: 'BALL STOPPED!',
+            x: activeBall.xPos,
+            y: activeBall.yPos - 20,
+            alpha: 1,
+            color: '#ffaa00',
+          });
           advanceBall();
         }
 
@@ -271,7 +382,7 @@ export default function SkillGame() {
         ctx.arc(activeBall.xPos, activeBall.yPos, activeBall.radius, 0, Math.PI * 2);
         ctx.fillStyle = activeBall.colour || '#03fca1';
         ctx.shadowColor = activeBall.colour || '#03fca1';
-        ctx.shadowBlur = activeBall.isClicked ? 10 : 15;
+        ctx.shadowBlur = activeBall.isClicked ? 10 : 16;
         ctx.fill();
         ctx.lineWidth = 2;
         ctx.strokeStyle = '#fff';
@@ -284,12 +395,12 @@ export default function SkillGame() {
         ctx.fillText(activeBall.letter, activeBall.xPos, activeBall.yPos + 5);
         ctx.restore();
 
-        // Slingshot Trajectory Line while dragging
+        // Slingshot Aiming Line & Trajectory Dots while dragging
         if (dragRef.current.isDragging && !activeBall.isClicked) {
           const pullDx = dragRef.current.currentX - dragRef.current.startX;
           const pullDy = dragRef.current.currentY - dragRef.current.startY;
 
-          // Pullback line (elastic band)
+          // Elastic band
           ctx.beginPath();
           ctx.moveTo(activeBall.xPos, activeBall.yPos);
           ctx.lineTo(dragRef.current.currentX, dragRef.current.currentY);
@@ -297,7 +408,7 @@ export default function SkillGame() {
           ctx.lineWidth = 4;
           ctx.stroke();
 
-          // Projected Aim Dots (opposite direction)
+          // Projected trajectory dots
           const aimVx = -pullDx * 1.8;
           const aimVy = -pullDy * 1.8;
 
@@ -312,7 +423,7 @@ export default function SkillGame() {
         }
       }
 
-      // Render & Update Particles
+      // Render Particles
       particlesRef.current.forEach((p, idx) => {
         p.x += p.vx;
         p.y += p.vy;
@@ -330,7 +441,7 @@ export default function SkillGame() {
         ctx.restore();
       });
 
-      // Render & Update Floating Texts
+      // Render Floating Texts
       floatingTextsRef.current.forEach((ft, idx) => {
         ft.y -= 1.2;
         ft.alpha -= 0.02;
@@ -341,7 +452,7 @@ export default function SkillGame() {
         ctx.save();
         ctx.globalAlpha = ft.alpha;
         ctx.fillStyle = ft.color;
-        ctx.font = 'bold 20px sans-serif';
+        ctx.font = 'bold 18px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(ft.text, ft.x, ft.y);
         ctx.restore();
@@ -354,17 +465,7 @@ export default function SkillGame() {
     return () => cancelAnimationFrame(animationFrameId);
   }, []);
 
-  const advanceBall = () => {
-    const nextIdx = stateRef.current.currentBallIdx + 1;
-    stateRef.current.currentBallIdx = nextIdx;
-    setCurrentBallIdx(nextIdx);
-
-    if (nextIdx >= ballsRef.current.length) {
-      finishGame();
-    }
-  };
-
-  // Mouse & Touch Drag Handlers
+  // Pointer Drag Handlers
   const handlePointerDown = (e) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -378,9 +479,8 @@ export default function SkillGame() {
     const activeBall = ballsRef.current[stateRef.current.currentBallIdx];
     if (!activeBall || activeBall.isClicked) return;
 
-    // Only allow pulling from below or near the ball
     const dist = Math.sqrt(Math.pow(x - activeBall.xPos, 2) + Math.pow(y - activeBall.yPos, 2));
-    if (dist < 50 || y > 600) {
+    if (dist < 60 || y > 600) {
       dragRef.current = {
         isDragging: true,
         startX: activeBall.xPos,
@@ -413,8 +513,6 @@ export default function SkillGame() {
     const activeBall = ballsRef.current[stateRef.current.currentBallIdx];
     if (!activeBall || activeBall.isClicked) return;
 
-    // Pullback direction: drag vector is (currentX - startX)
-    // Launch impulse is in the opposite direction!
     const pullX = dragRef.current.currentX - dragRef.current.startX;
     const pullY = dragRef.current.currentY - dragRef.current.startY;
 
@@ -429,10 +527,13 @@ export default function SkillGame() {
     }
   };
 
+  const activeBall = ballsRef.current[currentBallIdx];
+
   return (
     <LayoutGame>
       <div style={{ maxWidth: '540px', margin: '0 auto', padding: '0.5rem' }}>
-        {/* HUD Header */}
+        
+        {/* Top HUD */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -446,17 +547,17 @@ export default function SkillGame() {
           color: 'white',
         }}>
           <div>
-            <span style={{ fontSize: '0.8rem', color: '#90e0ef', display: 'block' }}>SCORE</span>
+            <span style={{ fontSize: '0.75rem', color: '#90e0ef', display: 'block' }}>BONUS SCORE</span>
             <span style={{ fontSize: '1.4rem', fontWeight: 800, color: '#03fca1' }}>{score}</span>
           </div>
-          <div>
-            <span style={{ fontSize: '0.8rem', color: '#90e0ef', display: 'block' }}>BALLS</span>
-            <span style={{ fontSize: '1.2rem', fontWeight: 700 }}>
-              {Math.max(0, ballsRef.current.length - currentBallIdx)} / {ballsRef.current.length}
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: '#90e0ef', display: 'block' }}>BANKED LETTERS</span>
+            <span style={{ fontSize: '1.2rem', fontWeight: 800, color: bankedLetters.length >= 3 ? '#03fca1' : '#ffd166' }}>
+              {bankedLetters.length} / {MAX_BANKED}
             </span>
           </div>
-          <div>
-            <span style={{ fontSize: '0.8rem', color: '#90e0ef', display: 'block' }}>TIMER</span>
+          <div style={{ textAlign: 'right' }}>
+            <span style={{ fontSize: '0.75rem', color: '#90e0ef', display: 'block' }}>TIME</span>
             <span style={{
               fontSize: '1.4rem',
               fontWeight: 800,
@@ -464,6 +565,65 @@ export default function SkillGame() {
             }}>
               {timeLeft}s
             </span>
+          </div>
+        </div>
+
+        {/* Choice Bar: Bank vs Launch */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: 'rgba(10, 14, 28, 0.85)',
+          padding: '0.6rem 1rem',
+          borderRadius: '12px',
+          marginBottom: '0.5rem',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'white' }}>
+            <span style={{ fontSize: '0.85rem', color: '#ccc' }}>Current Ball:</span>
+            {activeBall ? (
+              <span style={{
+                background: activeBall.colour || '#03fca1',
+                color: '#000',
+                borderRadius: '50%',
+                width: '32px',
+                height: '32px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 900,
+                fontSize: '1.1rem',
+              }}>
+                {activeBall.letter}
+              </span>
+            ) : (
+              <span>-</span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              onClick={handleBankCurrentLetter}
+              disabled={!activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED}
+              style={{
+                background: 'linear-gradient(135deg, #03fca1, #00b4d8)',
+                border: 'none',
+                color: '#000',
+                fontWeight: 900,
+                fontSize: '0.85rem',
+                padding: '0.5rem 1rem',
+                borderRadius: '8px',
+                cursor: !activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED ? 'not-allowed' : 'pointer',
+                opacity: !activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED ? 0.4 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                boxShadow: '0 0 10px rgba(3, 252, 161, 0.3)',
+              }}
+              title="Save this letter to spell words in the next round"
+            >
+              <FaInbox /> BANK LETTER (B)
+            </button>
           </div>
         </div>
 
@@ -497,30 +657,43 @@ export default function SkillGame() {
             <div style={{
               position: 'absolute',
               inset: 0,
-              background: 'rgba(0,0,0,0.8)',
+              background: 'rgba(0,0,0,0.85)',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               color: 'white',
               backdropFilter: 'blur(6px)',
+              padding: '1.5rem',
+              textAlign: 'center',
             }}>
-              <h2 style={{ fontSize: '2.5rem', fontWeight: 900, color: '#03fca1' }}>SKILL PHASE COMPLETE!</h2>
-              <p style={{ fontSize: '1.2rem', margin: '0.5rem 0 1.5rem' }}>Skill Points: <strong>{score}</strong></p>
-              <p style={{ color: '#90e0ef' }}>Advancing to Word Building Phase...</p>
+              <h2 style={{ fontSize: '2.2rem', fontWeight: 900, color: '#03fca1', margin: 0 }}>
+                SKILL PHASE COMPLETE!
+              </h2>
+              <p style={{ fontSize: '1.2rem', margin: '0.8rem 0' }}>
+                Bonus Points: <strong style={{ color: '#45b8ff' }}>{score}</strong>
+              </p>
+              <p style={{ fontSize: '1.1rem', margin: '0 0 1.2rem' }}>
+                Banked Letters: <strong style={{ color: '#03fca1' }}>{bankedLetters.join(' ')}</strong>
+              </p>
+              <p style={{ color: '#90e0ef' }}>Advancing to Word Crafting Phase...</p>
             </div>
           )}
         </div>
 
-        {/* Instructions pill */}
-        <p style={{
-          textAlign: 'center',
-          fontSize: '0.85rem',
+        {/* Controls hint */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          fontSize: '0.8rem',
           color: 'rgba(255, 255, 255, 0.7)',
           marginTop: '0.5rem',
+          padding: '0 0.5rem',
         }}>
-          🎯 <strong>Drag ball back & release</strong> to launch. Aim for x2 and x5 holes!
-        </p>
+          <span>📥 <strong>Bank</strong>: Keep letter for words</span>
+          <span>🎯 <strong>Launch</strong>: Shoot holes for bonus pts</span>
+        </div>
+
       </div>
     </LayoutGame>
   );
