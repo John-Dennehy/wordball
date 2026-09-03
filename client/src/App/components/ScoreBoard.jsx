@@ -1,70 +1,77 @@
-import React, { useState, useEffect } from 'react'
-import HighScore from './HighScore'
-import Layout from './Layout'
-import { Link } from 'react-router-dom'
-
+import React, { useState, useEffect } from 'react';
+import HighScore from './HighScore';
 
 export default function ScoreBoard(props) {
-
   const tableStyle = {
     color: 'white',
-    backgroundColor: 'rgba(0, 0, 0, 0)'
-  }
+    backgroundColor: 'transparent',
+  };
 
-  const [getScores, setScores] = useState(null)
-
-  function getList() {
-    return fetch('/api/getLeaderboard')
-      .then((response) => response.json())
-      .then((responseJson) => {
-        console.log('scores fetched: ', responseJson)
-        setScores(responseJson)
-      })
-      .catch((error) => {
-        console.error(error);
-      });
-  }
+  const [scores, setScores] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getList()
-  }, [])
-
-
-  function buildHTML(highScores) {
-    if (Array.isArray(highScores)) {
-      return highScores.map((highScore, index) => {
-        return <HighScore key={index} className='tbody' playerName={highScore.name} skillScore={highScore.skillScore} smartScore={highScore.smartScore} total={highScore.total} />
+    fetch('/api/getLeaderboard')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setScores(data);
+        } else {
+          // Fallback to local storage
+          const local = JSON.parse(localStorage.getItem('wordball_scores') || '[]');
+          setScores(local);
+        }
       })
-    }
-  }
-
-  function getTitle() {
-    if (props.title) { return props.title }
-    return 'Scoreboard'
-  }
+      .catch((err) => {
+        console.warn('API error, reading local scores:', err);
+        const local = JSON.parse(localStorage.getItem('wordball_scores') || '[]');
+        setScores(local);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
-
-    <center>
-      <div className='level-item has-text-centered'>
-        <div className='table-container is-centered'>
-          <table style={tableStyle} className='table is-outline is-striped is-hoverable is-centered is-fullwidth'>
-            <thead >
-              <tr >
-                {/* <th>Avatar</th> */}
-                <th style={tableStyle} >Player Name</th>
-                <th style={tableStyle} className='has-text-right'>Balls Score</th>
-                <th style={tableStyle} className='has-text-right'>Words Score</th>
-                <th style={tableStyle} className='has-text-right'>Total</th>
+    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '1rem' }}>
+      <div className="table-container">
+        <table style={tableStyle} className="table is-fullwidth is-striped is-hoverable">
+          <thead>
+            <tr>
+              <th style={{ ...tableStyle, textAlign: 'left' }}>#</th>
+              <th style={{ ...tableStyle, textAlign: 'left' }}>Player Name</th>
+              <th style={{ ...tableStyle, textAlign: 'right' }}>Skill</th>
+              <th style={{ ...tableStyle, textAlign: 'right' }}>Words</th>
+              <th style={{ ...tableStyle, textAlign: 'right', color: '#ffd166' }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={5} style={{ ...tableStyle, textAlign: 'center', padding: '2rem' }}>
+                  Loading high scores...
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {buildHTML(getScores)}
-            </tbody>
-          </table>
-        </div>
+            ) : scores.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={{ ...tableStyle, textAlign: 'center', padding: '2rem', color: 'rgba(255,255,255,0.6)' }}>
+                  No high scores recorded yet! Play a game and submit yours.
+                </td>
+              </tr>
+            ) : (
+              scores.slice(0, 20).map((score, index) => (
+                <tr key={index}>
+                  <td style={{ ...tableStyle, fontWeight: 700, color: index === 0 ? '#ffd166' : index === 1 ? '#e0e1dd' : index === 2 ? '#cd7f32' : 'white' }}>
+                    {index + 1}
+                  </td>
+                  <td style={{ ...tableStyle, fontWeight: 600 }}>{score.name || 'Anonymous'}</td>
+                  <td style={{ ...tableStyle, textAlign: 'right', color: '#45b8ff' }}>{score.skillScore ?? '-'}</td>
+                  <td style={{ ...tableStyle, textAlign: 'right', color: '#03fca1' }}>{score.smartScore ?? '-'}</td>
+                  <td style={{ ...tableStyle, textAlign: 'right', fontWeight: 900, color: '#ffd166' }}>{score.total ?? 0}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
-    </center>
-
-  )
+    </div>
+  );
 }
