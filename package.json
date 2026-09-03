@@ -5,11 +5,11 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "client": "npm run dev --prefix client",
-    "dev": "concurrently \"node server.js\" \"npm run dev --prefix client\"",
-    "build": "npm run build --prefix client",
-    "test": "npm test --prefix client",
-    "install:all": "npm install && npm install --prefix client"
+    "client": "pnpm --dir client dev",
+    "dev": "concurrently \"node server.js\" \"pnpm --dir client dev\"",
+    "build": "pnpm --dir client build",
+    "test": "pnpm --dir client test",
+    "install:all": "pnpm install && pnpm --dir client install"
   },
   "keywords": [
     "wordball",
