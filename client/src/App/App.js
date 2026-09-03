@@ -1,6 +1,5 @@
 import React from "react";
-import { Route, Switch } from 'react-router-dom';
-import { MemoryRouter } from 'react-router'
+import { Route, Switch, MemoryRouter } from 'react-router-dom';
 import '../style/App.css';
 import '../style/bulma.css'
 import Home from './pages/Home';

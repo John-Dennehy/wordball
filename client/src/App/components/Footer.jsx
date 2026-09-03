@@ -1,5 +1,5 @@
 import React from 'react'
-import { GoMarkGithub } from "react-icons/go";
+import { FaGithub } from "react-icons/fa";
 
 export default function Footer(props) {
 

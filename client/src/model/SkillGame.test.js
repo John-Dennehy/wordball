@@ -1,7 +1,25 @@
-import SkillGame from './skillGame';
-
+import { vi, it, expect } from 'vitest';
+import SkillGame from './SkillGame';
 import Ball from './ball';
-jest.mock('./ball');
+
+vi.mock('./ball', () => {
+  return {
+    default: class MockBall {
+      constructor() {
+        this.isDone = false;
+        this.xPos = 0;
+        this.yPos = 0;
+        this.radius = 10;
+        this.score = 1;
+        this.letter = 't';
+        this.colour = '#03fca1';
+      }
+      done() {
+        this.isDone = true;
+      }
+    },
+  };
+});
 
 const level = {
   letters:['t','e','s','t'],
@@ -25,9 +43,9 @@ it('Starts with word = []', () => {
 });
 
 it('forces game over', () => {
-  expect(game.isGameOver()).toNotBeTruthy
-  game.forceGameOver()
-  expect(game.isGameOver()).toBeTruthy
+  expect(game.isGameOver()).toBeFalsy();
+  game.forceGameOver();
+  expect(game.isGameOver()).toBeTruthy();
 });
 
 it('Starts with counter = 0', () => {

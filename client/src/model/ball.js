@@ -60,15 +60,16 @@ export default class Ball {
   }
 
   detectCollision () {
-    if (this.xPos + this.radius > this.canvas.width) {
+    if (!this.canvas) return
+    if (this.canvas.width && this.xPos + this.radius > this.canvas.width) {
       this.xPos = this.canvas.width - this.radius
       this.xVel = -this.xVel * this.cor
     }
-    if (this.xPos < this.radius) {
+    if (this.canvas.width && this.xPos < this.radius) {
       this.xPos = this.radius
       this.xVel = -this.xVel * this.cor
     }
-    if (this.yPos > this.canvas.height - this.radius) {
+    if (this.canvas.height && this.yPos > this.canvas.height - this.radius) {
       this.yPos = this.canvas.height - this.radius
       this.yVel = -this.yVel * this.cor
     }
