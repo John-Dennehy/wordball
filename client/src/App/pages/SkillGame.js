@@ -5,10 +5,14 @@ import { sound } from '../../model/audio.js';
 import Seed from '../../model/seed.js';
 import Level from '../../model/level.js';
 import Ball from '../../model/ball.js';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, levelList } from '../../model/config.js';
-import { FaInbox, FaArrowUp } from 'react-icons/fa';
+import { levelList, letterGroups, LetterColours } from '../../model/config.js';
+import { FaInbox, FaStopwatch } from 'react-icons/fa';
 
+const CANVAS_WIDTH = 500;
+const CANVAS_HEIGHT = 800;
 const MAX_BANKED = 8;
+const FOUL_LINE_Y = 520;
+const BANK_ZONE_Y = 660;
 
 export default function SkillGame() {
   const history = useHistory();
@@ -25,6 +29,7 @@ export default function SkillGame() {
   const ballsRef = useRef([]);
   const particlesRef = useRef([]);
   const floatingTextsRef = useRef([]);
+  const watchdogTimerRef = useRef(null);
 
   // Slingshot drag state
   const dragRef = useRef({
@@ -43,8 +48,15 @@ export default function SkillGame() {
     isAdvancing: false,
   });
 
+  // Sound & color helpers
+  const getLetterScore = (char) => {
+    for (const group in letterGroups) {
+      if (group.includes(char)) return letterGroups[group];
+    }
+    return 1;
+  };
+
   useEffect(() => {
-    // Initialize Level & Balls
     let gameLevel = location.state?.level || location.playGame?.level;
     if (!gameLevel) {
       const defaultWord = levelList[Math.floor(Math.random() * levelList.length)];
@@ -55,11 +67,10 @@ export default function SkillGame() {
 
     const canvas = canvasRef.current;
     const initialBalls = gameLevel.letters.map((letter) => {
-      return new Ball(250, 710, 16, letter, canvas);
+      return new Ball(250, FOUL_LINE_Y, 16, letter, canvas);
     });
     ballsRef.current = initialBalls;
 
-    // Countdown timer
     const timerInterval = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -74,7 +85,10 @@ export default function SkillGame() {
       });
     }, 1000);
 
-    return () => clearInterval(timerInterval);
+    return () => {
+      clearInterval(timerInterval);
+      if (watchdogTimerRef.current) clearTimeout(watchdogTimerRef.current);
+    };
   }, []);
 
   const finishGame = () => {
@@ -85,7 +99,6 @@ export default function SkillGame() {
 
     setTimeout(() => {
       let finalBanked = stateRef.current.bankedLetters;
-      // If player banked fewer than 3 letters, ensure they have at least 3 so word phase is playable
       if (finalBanked.length < 3) {
         const unused = ballsRef.current.map(b => b.letter).filter(l => !finalBanked.includes(l));
         while (finalBanked.length < 3 && unused.length > 0) {
@@ -101,9 +114,14 @@ export default function SkillGame() {
     }, 1500);
   };
 
-  const advanceBall = (delayMs = 250) => {
-    if (stateRef.current.isAdvancing) return;
+  const advanceBall = (delayMs = 200) => {
+    if (stateRef.current.isAdvancing || stateRef.current.gameOver) return;
     stateRef.current.isAdvancing = true;
+
+    if (watchdogTimerRef.current) {
+      clearTimeout(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
+    }
 
     setTimeout(() => {
       const nextIdx = stateRef.current.currentBallIdx + 1;
@@ -111,11 +129,10 @@ export default function SkillGame() {
       stateRef.current.isAdvancing = false;
       setCurrentBallIdx(nextIdx);
 
-      // Reset position of new ball
       if (nextIdx < ballsRef.current.length) {
         const nextBall = ballsRef.current[nextIdx];
         nextBall.xPos = 250;
-        nextBall.yPos = 710;
+        nextBall.yPos = FOUL_LINE_Y;
         nextBall.xVel = 0;
         nextBall.yVel = 0;
         nextBall.isClicked = false;
@@ -126,37 +143,30 @@ export default function SkillGame() {
     }, delayMs);
   };
 
-  // Player chooses to bank the current letter
-  const handleBankCurrentLetter = () => {
-    if (stateRef.current.gameOver || stateRef.current.isAdvancing) return;
-    const activeBall = ballsRef.current[stateRef.current.currentBallIdx];
-    if (!activeBall || activeBall.isClicked) return;
-
+  // Bank the active letter
+  const bankLetter = (char) => {
     if (stateRef.current.bankedLetters.length >= MAX_BANKED) {
       floatingTextsRef.current.push({
         text: 'BANK FULL (MAX 8)!',
         x: 250,
-        y: 660,
+        y: 600,
         alpha: 1,
         color: '#ff5555',
       });
       return;
     }
 
-    activeBall.done();
     sound.playTileClick();
-
-    // Bank the letter
-    stateRef.current.bankedLetters.push(activeBall.letter);
+    stateRef.current.bankedLetters.push(char);
     setBankedLetters([...stateRef.current.bankedLetters]);
 
-    // Particles on bank
-    for (let i = 0; i < 15; i++) {
+    // Green particle explosion in bank tray
+    for (let i = 0; i < 18; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const spd = 1.5 + Math.random() * 3;
+      const spd = 2 + Math.random() * 3.5;
       particlesRef.current.push({
-        x: activeBall.xPos,
-        y: activeBall.yPos,
+        x: 250,
+        y: 720,
         vx: Math.cos(angle) * spd,
         vy: Math.sin(angle) * spd,
         color: '#03fca1',
@@ -166,26 +176,34 @@ export default function SkillGame() {
     }
 
     floatingTextsRef.current.push({
-      text: `BANKED [${activeBall.letter}]!`,
+      text: `BANKED [${char}]!`,
       x: 250,
-      y: 670,
+      y: 700,
       alpha: 1,
       color: '#03fca1',
     });
 
     if (stateRef.current.bankedLetters.length >= MAX_BANKED) {
-      setTimeout(() => finishGame(), 600);
+      setTimeout(() => finishGame(), 500);
     } else {
-      advanceBall(150);
+      advanceBall(200);
     }
   };
 
-  // Keyboard shortcut: 'B' to bank
+  const handleQuickBank = () => {
+    if (stateRef.current.gameOver || stateRef.current.isAdvancing) return;
+    const activeBall = ballsRef.current[stateRef.current.currentBallIdx];
+    if (!activeBall || activeBall.isClicked) return;
+    activeBall.done();
+    bankLetter(activeBall.letter);
+  };
+
+  // Keyboard shortcut: 'B' or Down to bank
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'b' || e.key === 'B' || e.key === 'ArrowDown') {
         e.preventDefault();
-        handleBankCurrentLetter();
+        handleQuickBank();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -199,44 +217,33 @@ export default function SkillGame() {
     const ctx = canvas.getContext('2d');
     let animationFrameId;
 
-    const holes = levelRef.current?.holes || [
-      { xPos: 200, yPos: 180, score: 1, radius: 36 },
-      { xPos: 300, yPos: 180, score: 1, radius: 36 },
-      { xPos: 120, yPos: 100, score: 2, radius: 30 },
-      { xPos: 380, yPos: 100, score: 2, radius: 30 },
-      { xPos: 250, yPos: 55, score: 5, radius: 22 },
+    const holes = [
+      { xPos: 180, yPos: 180, score: 1, radius: 36 },
+      { xPos: 320, yPos: 180, score: 1, radius: 36 },
+      { xPos: 110, yPos: 100, score: 2, radius: 30 },
+      { xPos: 390, yPos: 100, score: 2, radius: 30 },
+      { xPos: 250, yPos: 55, score: 5, radius: 24 },
     ];
-
-    const foulLineY = 600;
 
     const render = () => {
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
       // Arena background
-      ctx.fillStyle = 'rgba(10, 14, 28, 0.75)';
+      ctx.fillStyle = 'rgba(10, 14, 28, 0.85)';
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      // Arena border
+      // Outer border
       ctx.strokeStyle = '#45b8ff';
       ctx.lineWidth = 3;
       ctx.strokeRect(4, 4, CANVAS_WIDTH - 8, CANVAS_HEIGHT - 8);
 
-      // Draw Foul Line
-      ctx.setLineDash([8, 6]);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, foulLineY);
-      ctx.lineTo(CANVAS_WIDTH, foulLineY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      // 1. TOP BONUS ZONE
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillStyle = 'rgba(69, 184, 255, 0.6)';
       ctx.textAlign = 'center';
-      ctx.fillText('LAUNCH PAD (DRAG BACK TO AIM)', CANVAS_WIDTH / 2, foulLineY + 20);
+      ctx.fillText('⬆️ BONUS HOLES (SHOOT UP FOR POINTS) ⬆️', CANVAS_WIDTH / 2, 22);
 
-      // Draw Target Holes (Only award bonus points, don't bank letters)
+      // Draw Target Holes
       holes.forEach((hole) => {
         ctx.save();
         ctx.beginPath();
@@ -245,7 +252,7 @@ export default function SkillGame() {
         if (hole.score >= 5) {
           ctx.fillStyle = '#ffb703';
           ctx.shadowColor = '#fb8500';
-          ctx.shadowBlur = 20;
+          ctx.shadowBlur = 18;
         } else if (hole.score === 2) {
           ctx.fillStyle = '#023e8a';
           ctx.shadowColor = '#0077b6';
@@ -268,139 +275,170 @@ export default function SkillGame() {
         ctx.restore();
       });
 
-      // Bottom Bank Tray
-      const trayY = 780;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-      ctx.fillRect(16, trayY, CANVAS_WIDTH - 32, 80);
-      ctx.strokeStyle = 'rgba(3, 252, 161, 0.4)';
+      // 2. MID FOUL / LAUNCH LINE
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(16, trayY, CANVAS_WIDTH - 32, 80);
+      ctx.beginPath();
+      ctx.moveTo(0, FOUL_LINE_Y);
+      ctx.lineTo(CANVAS_WIDTH, FOUL_LINE_Y);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
-      ctx.fillStyle = '#90e0ef';
       ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(`BANKED FOR WORDS (${stateRef.current.bankedLetters.length}/${MAX_BANKED}):`, 26, trayY + 18);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.textAlign = 'center';
+      ctx.fillText('LAUNCH PAD (AIM UP FOR POINTS  •  AIM DOWN TO BANK)', CANVAS_WIDTH / 2, FOUL_LINE_Y - 12);
 
-      // Draw collected banked letters in the tray
-      stateRef.current.bankedLetters.forEach((char, idx) => {
-        const bx = 45 + idx * 36;
-        const by = trayY + 48;
+      // 3. BOTTOM BANK ZONE / WORD HOLE
+      ctx.save();
+      ctx.fillStyle = 'rgba(3, 252, 161, 0.08)';
+      ctx.fillRect(16, BANK_ZONE_Y, CANVAS_WIDTH - 32, CANVAS_HEIGHT - BANK_ZONE_Y - 16);
+      ctx.strokeStyle = '#03fca1';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(16, BANK_ZONE_Y, CANVAS_WIDTH - 32, CANVAS_HEIGHT - BANK_ZONE_Y - 16);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#03fca1';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`⬇️ BANK ZONE (LAUNCH DOWN TO BANK LETTER) ⬇️`, CANVAS_WIDTH / 2, BANK_ZONE_Y + 22);
+
+      // Render Banked Letters Inside Tray
+      const trayLetters = stateRef.current.bankedLetters;
+      trayLetters.forEach((char, idx) => {
+        const bx = 50 + (idx % 8) * 55;
+        const by = BANK_ZONE_Y + 65;
         ctx.beginPath();
-        ctx.arc(bx, by, 14, 0, Math.PI * 2);
+        ctx.arc(bx, by, 16, 0, Math.PI * 2);
         ctx.fillStyle = '#03fca1';
         ctx.fill();
         ctx.fillStyle = '#000';
-        ctx.font = 'bold 13px sans-serif';
+        ctx.font = 'bold 15px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(char, bx, by + 5);
       });
+      ctx.restore();
 
-      // Active Ball
+      // 4. ACTIVE BALL LOGIC & PHYSICS
       const activeBall = ballsRef.current[stateRef.current.currentBallIdx];
-      if (activeBall && !activeBall.isDone) {
-        const prevVelX = activeBall.xVel;
-        const prevVelY = activeBall.yVel;
+      if (activeBall) {
+        if (activeBall.isClicked && !activeBall.isDone) {
+          const prevVelX = activeBall.xVel;
+          const prevVelY = activeBall.yVel;
 
-        activeBall.position();
+          activeBall.position();
 
-        // Detect bounce sound
-        if ((activeBall.xVel * prevVelX < 0 || activeBall.yVel * prevVelY < 0) && activeBall.speed() > 2) {
-          sound.playBounce();
-        }
-
-        // 1. Check if Ball Flew Over the Edge at the Top (Abyss miss)
-        if (activeBall.yPos < -activeBall.radius && !activeBall.isDone) {
-          activeBall.done();
-          floatingTextsRef.current.push({
-            text: 'OVER THE TOP (MISSED)!',
-            x: 250,
-            y: 350,
-            alpha: 1,
-            color: '#ff6b6b',
-          });
-          advanceBall();
-        }
-
-        // 2. Check Target Hole Sinks (Bonus Points, NOT Banked)
-        holes.forEach((hole) => {
-          const dx = activeBall.xPos - hole.xPos;
-          const dy = activeBall.yPos - hole.yPos;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < hole.radius + 2 && !activeBall.isDone) {
-            activeBall.done();
-            const points = (activeBall.score || 1) * hole.score * 10;
-            stateRef.current.score += points;
-            setScore(stateRef.current.score);
-
-            sound.playHoleSink(hole.score);
-
-            // Particle explosion
-            for (let i = 0; i < 22; i++) {
-              const angle = Math.random() * Math.PI * 2;
-              const spd = 2 + Math.random() * 5;
-              particlesRef.current.push({
-                x: hole.xPos,
-                y: hole.yPos,
-                vx: Math.cos(angle) * spd,
-                vy: Math.sin(angle) * spd,
-                color: hole.score >= 5 ? '#ffd166' : activeBall.colour || '#03fca1',
-                radius: 2 + Math.random() * 3,
-                alpha: 1,
-              });
-            }
-
-            floatingTextsRef.current.push({
-              text: `+${points} BONUS!`,
-              x: hole.xPos,
-              y: hole.yPos - 10,
-              alpha: 1,
-              color: hole.score >= 5 ? '#ffd166' : '#03fca1',
-            });
-
-            // Advance immediately to new ball
-            advanceBall();
+          // Wall bounce sound
+          if ((activeBall.xVel * prevVelX < 0 || activeBall.yVel * prevVelY < 0) && activeBall.speed() > 2) {
+            sound.playBounce();
           }
-        });
 
-        // 3. Check if Ball Stopped Moving (Missed shot)
-        if (activeBall.isClicked && activeBall.speed() < 1.8 && !activeBall.isDone) {
-          activeBall.done();
-          floatingTextsRef.current.push({
-            text: 'BALL STOPPED!',
-            x: activeBall.xPos,
-            y: activeBall.yPos - 20,
-            alpha: 1,
-            color: '#ffaa00',
+          // Case A: Landed in the BOTTOM BANK ZONE!
+          if (activeBall.yPos >= BANK_ZONE_Y + 10 && !activeBall.isDone) {
+            activeBall.done();
+            bankLetter(activeBall.letter);
+          }
+
+          // Case B: Landed in a TOP SCORE HOLE!
+          holes.forEach((hole) => {
+            const dx = activeBall.xPos - hole.xPos;
+            const dy = activeBall.yPos - hole.yPos;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < hole.radius + 2 && !activeBall.isDone) {
+              activeBall.done();
+              const points = (activeBall.score || 1) * hole.score * 10;
+              stateRef.current.score += points;
+              setScore(stateRef.current.score);
+
+              sound.playHoleSink(hole.score);
+
+              // Particle explosion
+              for (let i = 0; i < 22; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const spd = 2 + Math.random() * 5;
+                particlesRef.current.push({
+                  x: hole.xPos,
+                  y: hole.yPos,
+                  vx: Math.cos(angle) * spd,
+                  vy: Math.sin(angle) * spd,
+                  color: hole.score >= 5 ? '#ffd166' : activeBall.colour || '#03fca1',
+                  radius: 2 + Math.random() * 3,
+                  alpha: 1,
+                });
+              }
+
+              floatingTextsRef.current.push({
+                text: `+${points} BONUS!`,
+                x: hole.xPos,
+                y: hole.yPos - 10,
+                alpha: 1,
+                color: hole.score >= 5 ? '#ffd166' : '#03fca1',
+              });
+
+              advanceBall(250);
+            }
           });
-          advanceBall();
+
+          // Case C: Flew over the top edge (missed)
+          if (activeBall.yPos < -activeBall.radius && !activeBall.isDone) {
+            activeBall.done();
+            floatingTextsRef.current.push({
+              text: 'OVER THE TOP (MISSED)!',
+              x: 250,
+              y: 280,
+              alpha: 1,
+              color: '#ff6b6b',
+            });
+            advanceBall(250);
+          }
         }
 
-        // Render Active Ball
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(activeBall.xPos, activeBall.yPos, activeBall.radius, 0, Math.PI * 2);
-        ctx.fillStyle = activeBall.colour || '#03fca1';
-        ctx.shadowColor = activeBall.colour || '#03fca1';
-        ctx.shadowBlur = activeBall.isClicked ? 10 : 16;
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = '#fff';
-        ctx.stroke();
+        // Case D: Ball stopped moving OR was marked done!
+        if (activeBall.isClicked && (activeBall.isDone || activeBall.speed() < 4) && !stateRef.current.isAdvancing) {
+          activeBall.done();
+          if (activeBall.yPos >= BANK_ZONE_Y) {
+            bankLetter(activeBall.letter);
+          } else {
+            floatingTextsRef.current.push({
+              text: 'STOPPED (NO POINTS)',
+              x: activeBall.xPos,
+              y: activeBall.yPos - 20,
+              alpha: 1,
+              color: '#ffaa00',
+            });
+            advanceBall(250);
+          }
+        }
 
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#000';
-        ctx.font = 'bold 15px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(activeBall.letter, activeBall.xPos, activeBall.yPos + 5);
-        ctx.restore();
+        // Draw the Ball
+        if (!activeBall.isDone || !stateRef.current.isAdvancing) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(activeBall.xPos, activeBall.yPos, activeBall.radius, 0, Math.PI * 2);
+          ctx.fillStyle = activeBall.colour || '#03fca1';
+          ctx.shadowColor = activeBall.colour || '#03fca1';
+          ctx.shadowBlur = activeBall.isClicked ? 10 : 16;
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#fff';
+          ctx.stroke();
 
-        // Slingshot Aiming Line & Trajectory Dots while dragging
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#000';
+          ctx.font = 'bold 15px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(activeBall.letter, activeBall.xPos, activeBall.yPos + 5);
+          ctx.restore();
+        }
+
+        // Slingshot Aim Line & Predicted Trajectory
         if (dragRef.current.isDragging && !activeBall.isClicked) {
           const pullDx = dragRef.current.currentX - dragRef.current.startX;
           const pullDy = dragRef.current.currentY - dragRef.current.startY;
 
-          // Elastic band
           ctx.beginPath();
           ctx.moveTo(activeBall.xPos, activeBall.yPos);
           ctx.lineTo(dragRef.current.currentX, dragRef.current.currentY);
@@ -408,16 +446,18 @@ export default function SkillGame() {
           ctx.lineWidth = 4;
           ctx.stroke();
 
-          // Projected trajectory dots
           const aimVx = -pullDx * 1.8;
           const aimVy = -pullDy * 1.8;
+          const isAimingDown = aimVy > 0;
 
           for (let i = 1; i <= 6; i++) {
             const dotX = activeBall.xPos + (aimVx * i * 0.08);
             const dotY = activeBall.yPos + (aimVy * i * 0.08);
             ctx.beginPath();
-            ctx.arc(dotX, dotY, 4 - i * 0.4, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(3, 252, 161, ${1 - i * 0.15})`;
+            ctx.arc(dotX, dotY, 4.5 - i * 0.4, 0, Math.PI * 2);
+            ctx.fillStyle = isAimingDown 
+              ? `rgba(3, 252, 161, ${1 - i * 0.15})` 
+              : `rgba(69, 184, 255, ${1 - i * 0.15})`;
             ctx.fill();
           }
         }
@@ -427,7 +467,7 @@ export default function SkillGame() {
       particlesRef.current.forEach((p, idx) => {
         p.x += p.vx;
         p.y += p.vy;
-        p.alpha -= 0.03;
+        p.alpha -= 0.035;
         if (p.alpha <= 0) {
           particlesRef.current.splice(idx, 1);
           return;
@@ -465,7 +505,7 @@ export default function SkillGame() {
     return () => cancelAnimationFrame(animationFrameId);
   }, []);
 
-  // Pointer Drag Handlers
+  // Pointer drag event handlers
   const handlePointerDown = (e) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -480,7 +520,7 @@ export default function SkillGame() {
     if (!activeBall || activeBall.isClicked) return;
 
     const dist = Math.sqrt(Math.pow(x - activeBall.xPos, 2) + Math.pow(y - activeBall.yPos, 2));
-    if (dist < 60 || y > 600) {
+    if (dist < 70) {
       dragRef.current = {
         isDragging: true,
         startX: activeBall.xPos,
@@ -524,6 +564,14 @@ export default function SkillGame() {
         dragRef.current.startX,
         dragRef.current.startY
       );
+
+      // Watchdog safety timer: force advance after 4.5s so ball NEVER gets stuck
+      if (watchdogTimerRef.current) clearTimeout(watchdogTimerRef.current);
+      watchdogTimerRef.current = setTimeout(() => {
+        if (!stateRef.current.isAdvancing) {
+          advanceBall(100);
+        }
+      }, 4500);
     }
   };
 
@@ -531,167 +579,302 @@ export default function SkillGame() {
 
   return (
     <LayoutGame>
-      <div style={{ maxWidth: '540px', margin: '0 auto', padding: '0.5rem' }}>
+      {/* Responsive Widescreen Layout (Fits in viewport without vertical scrolling!) */}
+      <div style={{
+        maxWidth: '1200px',
+        margin: '0 auto',
+        padding: '0.2rem 1rem',
+        height: 'calc(100vh - 10px)',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        boxSizing: 'border-box',
+      }}>
         
-        {/* Top HUD */}
+        {/* Main 3-Column Arena Container */}
         <div style={{
           display: 'flex',
-          justifyContent: 'space-between',
+          gap: '1.2rem',
           alignItems: 'center',
-          background: 'rgba(0, 0, 0, 0.4)',
-          backdropFilter: 'blur(8px)',
-          borderRadius: '12px',
-          padding: '0.6rem 1.2rem',
-          marginBottom: '0.5rem',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          color: 'white',
+          justifyContent: 'center',
+          flex: 1,
+          minHeight: 0,
         }}>
-          <div>
-            <span style={{ fontSize: '0.75rem', color: '#90e0ef', display: 'block' }}>BONUS SCORE</span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, color: '#03fca1' }}>{score}</span>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '0.75rem', color: '#90e0ef', display: 'block' }}>BANKED LETTERS</span>
-            <span style={{ fontSize: '1.2rem', fontWeight: 800, color: bankedLetters.length >= 3 ? '#03fca1' : '#ffd166' }}>
-              {bankedLetters.length} / {MAX_BANKED}
-            </span>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <span style={{ fontSize: '0.75rem', color: '#90e0ef', display: 'block' }}>TIME</span>
-            <span style={{
-              fontSize: '1.4rem',
-              fontWeight: 800,
-              color: timeLeft <= 10 ? '#ff3333' : '#ffd166',
-            }}>
-              {timeLeft}s
-            </span>
-          </div>
-        </div>
 
-        {/* Choice Bar: Bank vs Launch */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          background: 'rgba(10, 14, 28, 0.85)',
-          padding: '0.6rem 1rem',
-          borderRadius: '12px',
-          marginBottom: '0.5rem',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'white' }}>
-            <span style={{ fontSize: '0.85rem', color: '#ccc' }}>Current Ball:</span>
-            {activeBall ? (
-              <span style={{
-                background: activeBall.colour || '#03fca1',
-                color: '#000',
-                borderRadius: '50%',
-                width: '32px',
-                height: '32px',
-                display: 'inline-flex',
+          {/* LEFT PANEL: Current Ball & Instructions */}
+          <div style={{
+            flex: '0 0 240px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+            color: 'white',
+          }} className="is-hidden-touch">
+            
+            {/* Active Ball Preview Card */}
+            <div style={{
+              background: 'rgba(10, 14, 28, 0.85)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '16px',
+              padding: '1.2rem',
+              textAlign: 'center',
+              backdropFilter: 'blur(10px)',
+            }}>
+              <span style={{ fontSize: '0.8rem', color: '#90e0ef', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                CURRENT LETTER
+              </span>
+              
+              <div style={{ margin: '1rem auto' }}>
+                {activeBall ? (
+                  <div style={{
+                    width: '70px',
+                    height: '70px',
+                    borderRadius: '50%',
+                    background: activeBall.colour || '#03fca1',
+                    color: '#000',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto',
+                    boxShadow: `0 0 20px ${activeBall.colour || '#03fca1'}`,
+                    fontWeight: 900,
+                    fontSize: '2rem',
+                    position: 'relative',
+                  }}>
+                    {activeBall.letter}
+                    <span style={{ fontSize: '0.75rem', position: 'absolute', bottom: '4px', right: '12px' }}>
+                      {getLetterScore(activeBall.letter)}
+                    </span>
+                  </div>
+                ) : (
+                  <span style={{ fontSize: '1.2rem' }}>Ready</span>
+                )}
+              </div>
+
+              <button
+                onClick={handleQuickBank}
+                disabled={!activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED}
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(135deg, #03fca1, #00b4d8)',
+                  border: 'none',
+                  color: '#000',
+                  fontWeight: 900,
+                  fontSize: '0.9rem',
+                  padding: '0.7rem 0.5rem',
+                  borderRadius: '10px',
+                  cursor: !activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED ? 'not-allowed' : 'pointer',
+                  opacity: !activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED ? 0.4 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.4rem',
+                  boxShadow: '0 4px 12px rgba(3, 252, 161, 0.3)',
+                }}
+              >
+                <FaInbox /> QUICK BANK (B)
+              </button>
+            </div>
+
+            {/* How to Play Guide */}
+            <div style={{
+              background: 'rgba(10, 14, 28, 0.7)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '16px',
+              padding: '1rem',
+              fontSize: '0.85rem',
+              lineHeight: 1.5,
+            }}>
+              <div style={{ fontWeight: 800, color: '#ffd166', marginBottom: '0.5rem' }}>
+                HOW TO AIM & PLAY:
+              </div>
+              <p style={{ margin: '0 0 0.5rem' }}>
+                🎯 <strong>Drag ball back</strong> to load slingshot tension.
+              </p>
+              <p style={{ margin: '0 0 0.5rem', color: '#03fca1' }}>
+                ⬇️ <strong>Launch DOWN</strong> into the Bank Zone to keep letter for spelling!
+              </p>
+              <p style={{ margin: 0, color: '#45b8ff' }}>
+                ⬆️ <strong>Launch UP</strong> into the upper holes for bonus score!
+              </p>
+            </div>
+          </div>
+
+          {/* CENTER: Canvas Arena (Scaled to fit viewport perfectly without scrolling) */}
+          <div style={{
+            position: 'relative',
+            height: 'min(82vh, 740px)',
+            aspectRatio: '500 / 800',
+            borderRadius: '20px',
+            overflow: 'hidden',
+            boxShadow: '0 15px 40px rgba(0,0,0,0.6), 0 0 25px rgba(69, 184, 255, 0.25)',
+            touchAction: 'none',
+            flexShrink: 0,
+          }}>
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                cursor: 'crosshair',
+              }}
+              onMouseDown={handlePointerDown}
+              onMouseMove={handlePointerMove}
+              onMouseUp={handlePointerUp}
+              onTouchStart={handlePointerDown}
+              onTouchMove={handlePointerMove}
+              onTouchEnd={handlePointerUp}
+            />
+
+            {/* Game Over Transition Screen */}
+            {gameOver && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(0,0,0,0.85)',
+                display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontWeight: 900,
-                fontSize: '1.1rem',
+                color: 'white',
+                backdropFilter: 'blur(8px)',
+                padding: '1.5rem',
+                textAlign: 'center',
               }}>
-                {activeBall.letter}
-              </span>
-            ) : (
-              <span>-</span>
+                <h2 style={{ fontSize: '2.2rem', fontWeight: 900, color: '#03fca1', margin: 0 }}>
+                  SKILL ROUND OVER!
+                </h2>
+                <p style={{ fontSize: '1.2rem', margin: '0.8rem 0' }}>
+                  Bonus Points: <strong style={{ color: '#45b8ff' }}>{score}</strong>
+                </p>
+                <p style={{ fontSize: '1.1rem', margin: '0 0 1.2rem' }}>
+                  Banked Letters: <strong style={{ color: '#03fca1' }}>{bankedLetters.join(' ')}</strong>
+                </p>
+                <p style={{ color: '#90e0ef' }}>Advancing to Word Crafting Phase...</p>
+              </div>
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              onClick={handleBankCurrentLetter}
-              disabled={!activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED}
-              style={{
-                background: 'linear-gradient(135deg, #03fca1, #00b4d8)',
-                border: 'none',
-                color: '#000',
-                fontWeight: 900,
-                fontSize: '0.85rem',
-                padding: '0.5rem 1rem',
-                borderRadius: '8px',
-                cursor: !activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED ? 'not-allowed' : 'pointer',
-                opacity: !activeBall || activeBall.isClicked || bankedLetters.length >= MAX_BANKED ? 0.4 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                boxShadow: '0 0 10px rgba(3, 252, 161, 0.3)',
-              }}
-              title="Save this letter to spell words in the next round"
-            >
-              <FaInbox /> BANK LETTER (B)
-            </button>
-          </div>
-        </div>
-
-        {/* Canvas Arena Container */}
-        <div style={{
-          position: 'relative',
-          borderRadius: '16px',
-          overflow: 'hidden',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(69, 184, 255, 0.2)',
-          touchAction: 'none',
-        }}>
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
-            style={{
-              width: '100%',
-              height: 'auto',
-              display: 'block',
-              cursor: 'crosshair',
-            }}
-            onMouseDown={handlePointerDown}
-            onMouseMove={handlePointerMove}
-            onMouseUp={handlePointerUp}
-            onTouchStart={handlePointerDown}
-            onTouchMove={handlePointerMove}
-            onTouchEnd={handlePointerUp}
-          />
-
-          {gameOver && (
+          {/* RIGHT PANEL: Live Score, Timer & Banked Letters Rack */}
+          <div style={{
+            flex: '0 0 240px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+            color: 'white',
+          }} className="is-hidden-touch">
+            
+            {/* Score & Timer Card */}
             <div style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(0,0,0,0.85)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              backdropFilter: 'blur(6px)',
-              padding: '1.5rem',
-              textAlign: 'center',
+              background: 'rgba(10, 14, 28, 0.85)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '16px',
+              padding: '1.2rem',
+              backdropFilter: 'blur(10px)',
             }}>
-              <h2 style={{ fontSize: '2.2rem', fontWeight: 900, color: '#03fca1', margin: 0 }}>
-                SKILL PHASE COMPLETE!
-              </h2>
-              <p style={{ fontSize: '1.2rem', margin: '0.8rem 0' }}>
-                Bonus Points: <strong style={{ color: '#45b8ff' }}>{score}</strong>
-              </p>
-              <p style={{ fontSize: '1.1rem', margin: '0 0 1.2rem' }}>
-                Banked Letters: <strong style={{ color: '#03fca1' }}>{bankedLetters.join(' ')}</strong>
-              </p>
-              <p style={{ color: '#90e0ef' }}>Advancing to Word Crafting Phase...</p>
-            </div>
-          )}
-        </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <span style={{ fontSize: '0.75rem', color: '#90e0ef', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  SKILL SCORE
+                </span>
+                <div style={{ fontSize: '2.4rem', fontWeight: 900, color: '#45b8ff', lineHeight: 1.1 }}>
+                  {score}
+                </div>
+              </div>
 
-        {/* Controls hint */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontSize: '0.8rem',
-          color: 'rgba(255, 255, 255, 0.7)',
-          marginTop: '0.5rem',
-          padding: '0 0.5rem',
-        }}>
-          <span>📥 <strong>Bank</strong>: Keep letter for words</span>
-          <span>🎯 <strong>Launch</strong>: Shoot holes for bonus pts</span>
+              <div>
+                <span style={{ fontSize: '0.75rem', color: '#90e0ef', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <FaStopwatch /> TIME REMAINING
+                </span>
+                <div style={{
+                  fontSize: '2rem',
+                  fontWeight: 900,
+                  color: timeLeft <= 10 ? '#ff3333' : '#ffd166',
+                  lineHeight: 1.1,
+                }}>
+                  {timeLeft}s
+                </div>
+              </div>
+            </div>
+
+            {/* Banked Tray Preview Card */}
+            <div style={{
+              background: 'rgba(10, 14, 28, 0.85)',
+              border: '1px solid rgba(3, 252, 161, 0.3)',
+              borderRadius: '16px',
+              padding: '1.2rem',
+              backdropFilter: 'blur(10px)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                <span style={{ fontSize: '0.8rem', color: '#03fca1', fontWeight: 800 }}>
+                  BANKED LETTERS
+                </span>
+                <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>
+                  {bankedLetters.length} / {MAX_BANKED}
+                </span>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: '0.4rem',
+                minHeight: '80px',
+              }}>
+                {Array.from({ length: MAX_BANKED }).map((_, i) => {
+                  const letter = bankedLetters[i];
+                  return (
+                    <div key={i} style={{
+                      aspectRatio: '1',
+                      borderRadius: '8px',
+                      background: letter ? 'rgba(3, 252, 161, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                      border: letter ? '1px solid #03fca1' : '1px dashed rgba(255, 255, 255, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 900,
+                      fontSize: '1.2rem',
+                      color: letter ? '#fff' : 'transparent',
+                    }}>
+                      {letter || ''}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <span style={{
+                fontSize: '0.75rem',
+                color: bankedLetters.length >= 3 ? '#03fca1' : '#ffd166',
+                display: 'block',
+                marginTop: '0.6rem',
+                textAlign: 'center',
+              }}>
+                {bankedLetters.length >= 3
+                  ? '✓ Enough letters for word phase!'
+                  : `Need at least ${3 - bankedLetters.length} more!`}
+              </span>
+            </div>
+
+            {/* Balls Remaining Rack */}
+            <div style={{
+              background: 'rgba(10, 14, 28, 0.7)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '16px',
+              padding: '0.8rem 1rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '0.85rem',
+            }}>
+              <span style={{ color: 'rgba(255,255,255,0.7)' }}>Balls Remaining:</span>
+              <strong style={{ fontSize: '1.1rem', color: '#fff' }}>
+                {Math.max(0, ballsRef.current.length - currentBallIdx)}
+              </strong>
+            </div>
+
+          </div>
+
         </div>
 
       </div>

@@ -1,22 +1,22 @@
-import React from 'react'
+import React from 'react';
 
-import Header from './Header';
-import Footer from './Footer';
-import Content from './Content'
-import '../../style/App.css'
-
-export default function Layout(props) {
-
-  const layoutStyle = {
-    minHeight: 100 + 'vh',
-    padding: 0
+export default function LayoutGame({ children }) {
+  const containerStyle = {
+    height: '100vh',
+    width: '100vw',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 0,
+    margin: 0,
+    boxSizing: 'border-box',
   };
 
   return (
-    <div className='section is-centered' style={layoutStyle}>
-      <Content >
-        {props.children}
-      </Content>
+    <div style={containerStyle}>
+      {children}
     </div>
-  )
+  );
 }
