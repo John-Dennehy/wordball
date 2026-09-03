@@ -9,6 +9,7 @@
     "dev": "concurrently \"node server.js\" \"pnpm --dir client dev\"",
     "build": "pnpm --dir client build",
     "test": "pnpm --dir client test",
+    "typecheck": "pnpm --dir client typecheck",
     "install:all": "pnpm install && pnpm --dir client install"
   },
   "keywords": [
