@@ -1,31 +1,57 @@
 {
-  "name": "wordball-react",
-  "version": "2.0.0",
-  "description": "Makers Final Project - Wordball React Game",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "client": "pnpm --dir client dev",
-    "dev": "concurrently \"node server.js\" \"pnpm --dir client dev\"",
-    "build": "pnpm --dir client build",
-    "test": "pnpm --dir client test",
-    "typecheck": "pnpm --dir client typecheck",
-    "install:all": "pnpm install && pnpm --dir client install"
-  },
-  "keywords": [
-    "wordball",
-    "react",
-    "game",
-    "makers"
-  ],
-  "author": "John Dennehy",
-  "license": "ISC",
-  "dependencies": {
-    "express": "^4.21.2",
-    "mongodb": "^6.12.0"
-  },
-  "devDependencies": {
-    "concurrently": "^9.1.2",
-    "nodemon": "^3.1.9"
-  }
+	"name": "wordball",
+	"private": true,
+	"type": "module",
+	"description": "Wordball: a physics-and-anagram arcade game. A 2026 rewrite of a 2019 Makers Academy final project.",
+	"scripts": {
+		"dev": "vite dev --port 3000",
+		"build": "vite build",
+		"start": "node .output/server/index.mjs",
+		"lint": "biome check .",
+		"format": "biome format --write .",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:e2e": "playwright test",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate",
+		"words:build": "node scripts/build-dictionary.mjs",
+		"predev": "pnpm words:build",
+		"prebuild": "pnpm words:build",
+		"pretest": "pnpm words:build",
+		"pretypecheck": "pnpm words:build"
+	},
+	"engines": {
+		"node": ">=22"
+	},
+	"dependencies": {
+		"@neondatabase/serverless": "1.2.0",
+		"@tanstack/react-router": "1.170.46",
+		"@tanstack/react-start": "1.169.4",
+		"drizzle-orm": "0.45.4",
+		"nitro": "3.0.260903-beta",
+		"react": "19.3.1",
+		"react-dom": "19.3.1",
+		"zod": "4.6.7"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.2",
+		"@playwright/test": "1.64.1",
+		"@tailwindcss/vite": "4.3.3",
+		"@tanstack/router-plugin": "1.168.48",
+		"@testing-library/dom": "^10.4.2",
+		"@testing-library/jest-dom": "^7.0.1",
+		"@testing-library/react": "16.3.3",
+		"@types/node": "^22.20.5",
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
+		"@vitejs/plugin-react": "6.1.2",
+		"drizzle-kit": "0.31.11",
+		"jsdom": "30.1.3",
+		"tailwindcss": "4.3.3",
+		"typescript": "5.9.3",
+		"vite": "8.3.5",
+		"vitest": "5.0.5",
+		"word-list": "4.1.0"
+	},
+	"packageManager": "pnpm@10.28.0"
 }

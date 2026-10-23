@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+	--font-display: "Press Start 2P", ui-monospace, monospace;
+	--font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+	--color-night: #0b0f1f;
+	--color-panel: #131a33;
+	--color-panel-edge: #26315c;
+	--color-ink: #e8ecff;
+	--color-muted: #9aa5d1;
+	--color-cyan: #45d4ff;
+	--color-lime: #3dfca6;
+	--color-gold: #ffc94d;
+	--color-magenta: #ff5fd2;
+	--color-danger: #ff6b6b;
+}
+
+@layer base {
+	html {
+		color-scheme: dark;
+	}
+	body {
+		@apply bg-night font-sans text-ink antialiased;
+		background-image:
+			radial-gradient(circle at 20% 0%, #24104a 0%, transparent 45%),
+			radial-gradient(circle at 80% 100%, #0d2b4a 0%, transparent 50%);
+		background-attachment: fixed;
+		min-height: 100dvh;
+	}
+	:focus-visible {
+		@apply outline-2 outline-offset-2 outline-cyan;
+	}
+}
+
+@utility panel {
+	@apply rounded-2xl border border-panel-edge bg-panel/80 backdrop-blur;
+}
+
+@utility btn {
+	@apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-bold tracking-wide transition active:scale-95 disabled:opacity-40 disabled:active:scale-100;
+}
+
+@utility btn-primary {
+	@apply btn bg-lime text-night shadow-[0_0_24px_-4px_var(--color-lime)] hover:brightness-110;
+}
+
+@utility btn-secondary {
+	@apply btn border border-panel-edge bg-panel text-ink hover:border-cyan;
+}
+
+@utility label {
+	@apply text-xs font-bold uppercase tracking-[0.2em] text-muted;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		/* biome-ignore lint/complexity/noImportantStyles: reduced motion must win over utilities */
+		animation-duration: 0.01ms !important;
+		/* biome-ignore lint/complexity/noImportantStyles: reduced motion must win over utilities */
+		transition-duration: 0.01ms !important;
+	}
+}
